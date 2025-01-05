@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from agents import ReActAgent, ReflexAgent, RouterAgent
 from prompts import router
 
-# from utils.graph import show_graph
+from utils.graph import show_graph
 
 logging.basicConfig(level=logging.DEBUG)
 langchain.debug = True

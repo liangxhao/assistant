@@ -1,12 +1,13 @@
 from typing import List, Literal, Optional, Sequence, TypedDict
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import RemoveMessage
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command
 
 from .base.agent import BaseAgent, create_prompt
 from .state.principal import SummaryState
+from .user_agent import UserAgent
 
 
 class RouterAgent(BaseAgent):
@@ -20,6 +21,8 @@ class RouterAgent(BaseAgent):
         system_prompt: Optional[str] = None,
     ):
         super().__init__(name, description)
+
+        user_agent = UserAgent(name='user', description="User")
 
         prompt = create_prompt(system_prompt)
 
@@ -42,13 +45,25 @@ class RouterAgent(BaseAgent):
             goto = response['next']
             return Command(goto=END if goto == 'FINISH' else goto, update={'status': 'run'})
 
+
         def summary(state: SummaryState):
-            return {'messages': [AIMessage(content=state['messages'][-1].content)]}
+            messages = state['messages']
+            router_name = messages[-1].name
+            removed = []
+            for message in messages[-2::-1]:
+                if message.name == router_name:
+                    removed.append(RemoveMessage(id=message.id))
+                else:
+                    break
+
+            return {'messages': removed, "state": "run"}
 
         graph = StateGraph(SummaryState)
+        graph.add_node(user_agent.name, user_agent.get_graph())
         graph.add_node('router', router)
         graph.add_node('summary', summary)
-        graph.set_entry_point('router')
+        graph.set_entry_point('user')
+        graph.add_edge("user", "router")
         for agent in agents:
             graph.add_node(agent.name, agent.get_graph())
             graph.add_edge(agent.name, 'summary')
