@@ -1,3 +1,4 @@
+import uuid
 from typing import Callable, Literal, Optional, Sequence, Union
 
 from langchain_core.language_models import BaseChatModel
@@ -6,11 +7,12 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda, RunnableSequence
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.graph import MessagesState, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
-from .base.agent import BaseAgent, create_prompt
+from .base import AgentBase
 
 
-class ReflexAgent(BaseAgent):
+class ReflexAgent(AgentBase):
 
     def __init__(
         self,
@@ -20,12 +22,16 @@ class ReflexAgent(BaseAgent):
         tools: Sequence[Union[BaseTool, Callable]],
         system_prompt: Optional[str] = None,
     ):
-        super().__init__(name, description)
-        prompt = create_prompt(system_prompt)
+        super().__init__(name, description, model)
+        self.tools = tools
+        self.system_prompt = system_prompt
 
-        agent = (prompt | model | StrOutputParser() |
-                 RunnableLambda(lambda content: {'messages': [AIMessage(content=content)]}))
-        tools = [StructuredTool.from_function(tool) for tool in tools]
+    def _build_graph(self) -> CompiledStateGraph:
+        prompt = self._create_prompt(self.system_prompt)
+
+        agent = (prompt | self._model | StrOutputParser() |
+                 RunnableLambda(lambda content: {'messages': [AIMessage(content=content, id=str(uuid.uuid4()))]}))
+        tools = [StructuredTool.from_function(tool) for tool in self.tools]
         assert len(tools) >= 1
         assert set(tools[0].args.keys()) == {'request', 'response'}
 
@@ -69,4 +75,4 @@ class ReflexAgent(BaseAgent):
         graph.add_edge('tools', 'gather')
         graph.add_conditional_edges('gather', _gather_should_end)
         graph.set_entry_point('agent')
-        self._graph = graph.compile()
+        return graph.compile()

@@ -1,1 +1,1 @@
-from .manage import ManageMessage  # noqa
+from .refresh import MessageRefresh  # noqa

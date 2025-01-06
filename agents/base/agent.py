@@ -1,27 +1,21 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph.state import CompiledStateGraph
 
 
-def create_prompt(system_prompt: Optional[str] = None) -> ChatPromptTemplate:
-    prompt = (ChatPromptTemplate.from_messages([
-        ('system', system_prompt),
-        ('placeholder', '{messages}'),
-    ]) if system_prompt else ChatPromptTemplate.from_messages([
-        ('placeholder', '{messages}'),
-    ]))
-    return prompt
+class AgentBase(ABC):
 
-
-class BaseAgent(ABC):
-
-    @abstractmethod
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str, model: Optional[BaseChatModel] = None):
         self._name: str = name
         self._description: str = description
-        self._graph: Optional[CompiledStateGraph] = None
+        self._model: BaseChatModel = model
+
+    @abstractmethod
+    def _build_graph(self) -> CompiledStateGraph:
+        pass
 
     @property
     def name(self) -> str:
@@ -31,6 +25,20 @@ class BaseAgent(ABC):
     def description(self) -> str:
         return self._description
 
-    def get_graph(self) -> CompiledStateGraph:
-        assert self._graph
-        return self._graph
+    @property
+    def model(self) -> BaseChatModel:
+        return self._model
+
+    @property
+    def graph(self) -> CompiledStateGraph:
+        return self._build_graph()
+
+    # noinspection PyMethodMayBeStatic
+    def _create_prompt(self, system_prompt: Optional[str] = None) -> ChatPromptTemplate:
+        prompt = (ChatPromptTemplate.from_messages([
+            ('system', system_prompt),
+            ('placeholder', '{messages}'),
+        ]) if system_prompt else ChatPromptTemplate.from_messages([
+            ('placeholder', '{messages}'),
+        ]))
+        return prompt

@@ -5,31 +5,31 @@ from langchain_core.messages import RemoveMessage
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command
 
-from .base.agent import BaseAgent, create_prompt
+from .base import AgentBase
 from .state.principal import SummaryState
-from .user_agent import UserAgent
 
 
-class RouterAgent(BaseAgent):
+class RouterAgent(AgentBase):
 
     def __init__(
         self,
         name: str,
         description: str,
         model: BaseChatModel,
-        agents: Sequence[BaseAgent],
+        agents: Sequence[AgentBase],
         system_prompt: Optional[str] = None,
     ):
-        super().__init__(name, description)
+        super().__init__(name, description, model)
+        self.agents = agents
+        self.system_prompt = system_prompt
 
-        user_agent = UserAgent(name='user', description="User")
+    def _build_graph(self):
+        prompt = self._create_prompt(self.system_prompt)
 
-        prompt = create_prompt(system_prompt)
-
-        description_of_workers = '\n'.join([f"- {agent.name}: {agent.description}" for agent in agents])
+        description_of_workers = '\n'.join([f"- {agent.name}: {agent.description}" for agent in self.agents])
         prompt = prompt.partial(description_of_workers=description_of_workers)
 
-        workers: List[str] = [agent.name for agent in agents]
+        workers: List[str] = [agent.name for agent in self.agents]
 
         class Router(TypedDict):
             """
@@ -38,13 +38,15 @@ class RouterAgent(BaseAgent):
 
             next: Literal[*workers, 'FINISH']  # type: ignore
 
-        model = prompt | model.with_structured_output(Router)
+        model = prompt | self._model.with_structured_output(Router, method='json_schema')
 
         def router(state: SummaryState) -> Command[Literal[*workers, '__end__']]:  # type: ignore
             response = model.invoke({'messages': state['messages']})
             goto = response['next']
+            # assert all(
+            #     message.name for message in state["messages"]
+            # ), "All messages must have corresponding agent names."
             return Command(goto=END if goto == 'FINISH' else goto, update={'status': 'run'})
-
 
         def summary(state: SummaryState):
             messages = state['messages']
@@ -56,17 +58,15 @@ class RouterAgent(BaseAgent):
                 else:
                     break
 
-            return {'messages': removed, "state": "run"}
+            return {'messages': removed, 'state': 'run'}
 
         graph = StateGraph(SummaryState)
-        graph.add_node(user_agent.name, user_agent.get_graph())
         graph.add_node('router', router)
         graph.add_node('summary', summary)
-        graph.set_entry_point('user')
-        graph.add_edge("user", "router")
-        for agent in agents:
-            graph.add_node(agent.name, agent.get_graph())
+        graph.set_entry_point('router')
+        for agent in self.agents:
+            graph.add_node(agent.name, agent.graph)
             graph.add_edge(agent.name, 'summary')
-        graph.add_edge('summary', 'router')
+        graph.set_finish_point('summary')
 
-        self._graph = graph.compile()
+        return graph.compile()
