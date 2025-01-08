@@ -1,5 +1,6 @@
 from ..agents import RouterAgent
 from .base import TaskBase
+from .register import register_task
 
 SYSTEM_PROMPT = """
 You are a supervisor tasked with managing a conversation between the following workers:
@@ -12,12 +13,13 @@ When finished, respond with FINISH.
 """
 
 
+@register_task()
 class RouterTask(TaskBase):
     name: str = 'router'
     description: str = '任务路由专家，负责把任务分发给不同协作者'
 
-    def get_agent(self) -> RouterAgent:
-        model = self._build_model(**self._model_config)
+    def _build_agent(self) -> RouterAgent:
+        model = self._build_model()
         agent = RouterAgent(name=self.name,
                             description=self.description,
                             model=model,
